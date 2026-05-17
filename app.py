@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-# 移除原本的微軟正黑體，改用全平台通用的英文字體，並用英文標題避免雲端亂碼
+# 移除微軟正黑體，改用全平台通用的英文字體，避免 Linux 雲端亂碼
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -153,68 +153,63 @@ strategy_choice = st.sidebar.selectbox(
     ["(一) 移動平均策略 (MA)", "(二) RSI 順勢策略", "(三) RSI 逆勢策略", "(四) 布林通道策略 (BBands)", "(五) MACD 趨勢策略", "(六) KDJ 震盪策略"]
 )
 
-# 💡 初始化 Session State 參數記憶機制
-if "p1_val" not in st.session_state: st.session_state.p1_val = 20
-if "p2_val" not in st.session_state: st.session_state.p2_val = 5
-if "p3_val" not in st.session_state: st.session_state.p3_val = 9
-if "sl_val" not in st.session_state: st.session_state.sl_val = 10
-if "last_strategy" not in st.session_state: st.session_state.last_strategy = strategy_choice
-
-# 換策略時，自動更新為各自策略的安全預設值
-if st.session_state.last_strategy != strategy_choice:
+# 💡 初始化與切換策略的記憶機制（防止跨策略干擾爆錯）
+if "last_strategy" not in st.session_state:
     st.session_state.last_strategy = strategy_choice
-    if "(一)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 20, 5, 0, 10
-    elif "(二)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 14, 50, 0, 20
-    elif "(三)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 14, 30, 70, 15
-    elif "(四)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 20, 2, 0, 25
-    elif "(五)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 12, 26, 9, 30
-    elif "(六)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 9, 3, 3, 25
 
-# 💡 【核心修復點】：先確保無論如何都有基礎安全變數，消滅 NameError
-p1 = float(st.session_state.p1_val)
-p2 = float(st.session_state.p2_val)
-p3 = float(st.session_state.p3_val)
-stop_loss = float(st.session_state.sl_val)
+# 定義一個安全的記憶體字典，用來存放各策略的目前最優/手動滑桿值
+if "strat_params" not in st.session_state:
+    st.session_state.strat_params = {
+        "(一) 移動平均策略 (MA)": {"p1": 20, "p2": 5, "p3": 0, "sl": 10},
+        "(二) RSI 順勢策略": {"p1": 14, "p2": 50, "p3": 0, "sl": 20},
+        "(三) RSI 逆勢策略": {"p1": 14, "p2": 30, "p3": 70, "sl": 15},
+        "(四) 布林通道策略 (BBands)": {"p1": 20, "p2": 2, "p3": 0, "sl": 25},
+        "(五) MACD 趨勢策略": {"p1": 12, "p2": 26, "p3": 9, "sl": 30},
+        "(六) KDJ 震盪策略": {"p1": 9, "p2": 3, "p3": 3, "sl": 25}
+    }
 
-# 依據策略展示 Slider，並雙向同步更新
+# 取得目前所選策略的參數包
+current_params = st.session_state.strat_params[strategy_choice]
+
+# 渲染滑桿組件
 if strategy_choice == "(一) 移動平均策略 (MA)":
-    p1 = st.sidebar.slider("長天期均線 (Long MA)", 20, 60, key="p1_val")
-    p2 = st.sidebar.slider("短天期均線 (Short MA)", 5, 19, key="p2_val")
+    p1 = st.sidebar.slider("長天期均線 (Long MA)", 20, 60, int(current_params["p1"]))
+    p2 = st.sidebar.slider("短天期均線 (Short MA)", 5, 19, int(current_params["p2"]))
     p3 = 0
-    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
+    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, int(current_params["sl"]))
 elif strategy_choice == "(二) RSI 順勢策略":
-    p1 = st.sidebar.slider("RSI 週期", 5, 30, key="p1_val")
-    p2 = st.sidebar.slider("順勢買入超買界線", 50, 80, key="p2_val")
+    p1 = st.sidebar.slider("RSI 週期", 5, 30, int(current_params["p1"]))
+    p2 = st.sidebar.slider("順勢買入超買界線", 50, 80, int(current_params["p2"]))
     p3 = 0
-    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
+    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, int(current_params["sl"]))
 elif strategy_choice == "(三) RSI 逆勢策略":
-    p1 = st.sidebar.slider("RSI 週期", 5, 30, key="p1_val")
-    p2 = st.sidebar.slider("逆勢買入低估界線", 10, 45, key="p2_val")
-    p3 = st.sidebar.slider("逆勢賣出高估界線", 55, 90, key="p3_val")
-    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
+    p1 = st.sidebar.slider("RSI 週期", 5, 30, int(current_params["p1"]))
+    p2 = st.sidebar.slider("逆勢買入低估界線", 10, 45, int(current_params["p2"]))
+    p3 = st.sidebar.slider("逆勢賣出高估界線", 55, 90, int(current_params["p3"]))
+    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, int(current_params["sl"]))
 elif strategy_choice == "(四) 布林通道策略 (BBands)":
-    p1 = st.sidebar.slider("中線週期 (MA period)", 5, 40, key="p1_val")
-    p2 = st.sidebar.slider("標準差倍數 (Std Dev)", 1, 3, key="p2_val")
+    p1 = st.sidebar.slider("中線週期 (MA period)", 5, 40, int(current_params["p1"]))
+    p2 = st.sidebar.slider("標準差倍數 (Std Dev)", 1, 3, int(current_params["p2"]))
     p3 = 0
-    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
+    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, int(current_params["sl"]))
 elif strategy_choice == "(五) MACD 趨勢策略":
-    p1 = st.sidebar.slider("MACD 快線週期", 5, 20, key="p1_val")
-    p2 = st.sidebar.slider("MACD 慢線週期", 21, 40, key="p2_val")
-    p3 = st.sidebar.slider("訊號線週期", 5, 15, key="p3_val")
-    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
+    p1 = st.sidebar.slider("MACD 快線週期", 5, 20, int(current_params["p1"]))
+    p2 = st.sidebar.slider("MACD 慢線週期", 21, 40, int(current_params["p2"]))
+    p3 = st.sidebar.slider("訊號線週期", 5, 15, int(current_params["p3"]))
+    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, int(current_params["sl"]))
 elif strategy_choice == "(六) KDJ 震盪策略":
-    p1 = st.sidebar.slider("KDJ 快線週期 (FastK)", 5, 25, key="p1_val")
-    p2 = st.sidebar.slider("SlowK 磨平週期", 2, 10, key="p2_val")
-    p3 = st.sidebar.slider("SlowD 磨平週期", 2, 10, key="p3_val")
-    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
+    p1 = st.sidebar.slider("KDJ 快線週期 (FastK)", 5, 25, int(current_params["p1"]))
+    p2 = st.sidebar.slider("SlowK 磨平週期", 2, 10, int(current_params["p2"]))
+    p3 = st.sidebar.slider("SlowD 磨平週期", 2, 10, int(current_params["p3"]))
+    stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, int(current_params["sl"]))
 
-# ==================== 5. 參數最佳化邏輯 ====================
+# 使用者拖曳滑桿時，即時更新至記憶體，確保滑桿狀態與回測同步
+st.session_state.strat_params[strategy_choice]["p1"] = p1
+st.session_state.strat_params[strategy_choice]["p2"] = p2
+st.session_state.strat_params[strategy_choice]["p3"] = p3
+st.session_state.strat_params[strategy_choice]["sl"] = stop_loss
+
+# ==================== 5. 核心回測實作 ====================
 def run_backtest(df, strategy, param1, param2, param3, sl_points):
     total_bars = len(df)
     rec = AssignmentRecord(total_bars)
@@ -344,7 +339,7 @@ def run_backtest(df, strategy, param1, param2, param3, sl_points):
     rec.FillRemainingEquity()
     return rec
 
-# ==================== 5. 參數最佳化按鈕觸發 ====================
+# ==================== 6. 黃金參數最佳化計算觸發 ====================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 機器極速參數最佳化")
 st.sidebar.caption("同時計算『風險與報酬』，尋找最高風險報酬比的參數組合")
@@ -362,7 +357,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 0, best_sl
+            best_p3 = 0
             
         elif "(二)" in strategy_choice:
             for test_p1 in range(6, 25, 4):
@@ -372,7 +367,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 0, best_sl
+            best_p3 = 0
 
         elif "(三)" in strategy_choice:
             for test_p1 in range(10, 21, 5):
@@ -383,7 +378,6 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                             ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                             if ratio > best_ratio and res.TotalProfit > 0:
                                 best_ratio, best_p1, best_p2, best_p3, best_sl = ratio, test_p1, test_p2, test_p3, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, best_p3, best_sl
 
         elif "(四)" in strategy_choice:
             for test_p1 in range(10, 31, 10):
@@ -393,7 +387,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 0, best_sl
+            best_p3 = 0
 
         elif "(五)" in strategy_choice:
             for test_p1 in range(8, 17, 4):
@@ -403,16 +397,22 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 9, best_sl
+            best_p3 = 9
 
-        elif "(six)" in strategy_choice or "(六)" in strategy_choice:
+        elif "(六)" in strategy_choice:
             for test_p1 in range(9, 19, 5):
                 for test_sl in range(15, 36, 10):
                     res = run_backtest(df_hourly, strategy_choice, test_p1, 3, 3, test_sl)
                     ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                     if ratio > best_ratio and res.TotalProfit > 0:
                         best_ratio, best_p1, best_sl = ratio, test_p1, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, 3, 3, best_sl
+            best_p2, best_p3 = 3, 3
+
+        # 💡 【終極解法】：只把最優數值更新到安全的字典記憶體中，絕不硬改正在渲染的 widget key
+        st.session_state.strat_params[strategy_choice]["p1"] = best_p1
+        st.session_state.strat_params[strategy_choice]["p2"] = best_p2
+        st.session_state.strat_params[strategy_choice]["p3"] = best_p3
+        st.session_state.strat_params[strategy_choice]["sl"] = best_sl
 
         st.sidebar.success(f"✨ 最佳化完成！最高風報比：{best_ratio:.2f}")
         st.rerun()
@@ -420,7 +420,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
 # 最終計算當前滑桿參數的回測結果
 current_res = run_backtest(df_hourly, strategy_choice, p1, p2, p3, stop_loss)
 
-# ==================== 6. 數據呈現儀表板 ====================
+# ==================== 7. 數據呈現儀表板 ====================
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("💰 總淨利 (TWD)", f"${current_res.TotalProfit:,.0f}")
 col2.metric("📈 交易勝率", f"{current_res.GetWinRate()*100:.2f}%")
@@ -439,7 +439,7 @@ ax.legend()
 plt.xticks(rotation=15)
 st.pyplot(fig)
 
-# ==================== 7. AI 策略體質深度評估系統 ====================
+# ==================== 8. AI 策略體質深度評估系統 ====================
 st.markdown("---")
 st.subheader("🤖 AI 量化交易策略體質綜合評估與比較")
 
@@ -470,7 +470,7 @@ if score >= 80:
 elif score >= 60:
     rating = "⚖️ 良好 (Tier B)"
     color = "blue"
-    advice = "策略具備基本的獲利能力，且勝率維持在合理範圍。然而最大回撤（MDD）偏高，說明在行情反轉時移動止損的回控速度不夠敏銳。建議進一步優化止損點數，或加入濾網以汰除震盪盤整行情。"
+    advice = "策略具備基本的獲利能力，且勝率維持在合理範圍。然而最大回撤（MDD）偏高，說明在行情反轉時移動止損的回控速度不夠敏盛。建議進一步優化止損點數，或加入濾網以汰除震盪盤整行情。"
 else:
     rating = "⚠️ 待優化 (Tier C)"
     color = "red"
