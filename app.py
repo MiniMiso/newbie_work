@@ -68,37 +68,37 @@ class AssignmentRecord:
 
 # ==================== 2. 用 Pandas 純手寫還原技術指標 ====================
 def compute_sma(series, period):
-    return series.rolling(window=int(period)).mean().values
+    return series.rolling(window=max(1, int(period))).mean().values
 
 def compute_rsi(series, period):
     delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=int(period)).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=int(period)).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(window=max(1, int(period))).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=max(1, int(period))).mean()
     rs = gain / (loss + 1e-10)
     rsi = 100 - (100 / (1 + rs))
     return rsi.values
 
 def compute_bbands(series, period, nbdev):
-    ma = series.rolling(window=int(period)).mean()
-    std = series.rolling(window=int(period)).std()
+    ma = series.rolling(window=max(1, int(period))).mean()
+    std = series.rolling(window=max(1, int(period))).std()
     upper = ma + (nbdev * std)
     lower = ma - (nbdev * std)
     return upper.values, ma.values, lower.values
 
 def compute_macd(series, fast, slow, signal):
-    exp1 = series.ewm(span=int(fast), adjust=False).mean()
-    exp2 = series.ewm(span=int(slow), adjust=False).mean()
+    exp1 = series.ewm(span=max(1, int(fast)), adjust=False).mean()
+    exp2 = series.ewm(span=max(1, int(slow)), adjust=False).mean()
     macd_line = exp1 - exp2
-    signal_line = macd_line.ewm(span=int(signal), adjust=False).mean()
+    signal_line = macd_line.ewm(span=max(1, int(signal)), adjust=False).mean()
     hist = macd_line - signal_line
     return hist.values
 
 def compute_kdj(df, period=9, m1=3, m2=3):
-    low_min = df['low'].rolling(window=int(period)).min()
-    high_max = df['high'].rolling(window=int(period)).max()
+    low_min = df['low'].rolling(window=max(1, int(period))).min()
+    high_max = df['high'].rolling(window=max(1, int(period))).max()
     rsv = (df['close'] - low_min) / (high_max - low_min + 1e-10) * 100
-    k = rsv.ewm(com=m1-1, adjust=False).mean()
-    d = k.ewm(com=m2-1, adjust=False).mean()
+    k = rsv.ewm(com=max(0.1, m1-1), adjust=False).mean()
+    d = k.ewm(com=max(0.1, m2-1), adjust=False).mean()
     j = 3 * k - 2 * d
     return k.values, d.values, j.values
 
@@ -153,30 +153,36 @@ strategy_choice = st.sidebar.selectbox(
     ["(一) 移動平均策略 (MA)", "(二) RSI 順勢策略", "(三) RSI 逆勢策略", "(四) 布林通道策略 (BBands)", "(五) MACD 趨勢策略", "(六) KDJ 震盪策略"]
 )
 
-# 💡 關鍵修復：定義獨立的 key 來跟 Slider 綁定，讓滑桿能被程式直接修改
+# 💡 初始化 Session State 參數記憶機制
 if "p1_val" not in st.session_state: st.session_state.p1_val = 20
 if "p2_val" not in st.session_state: st.session_state.p2_val = 5
 if "p3_val" not in st.session_state: st.session_state.p3_val = 9
 if "sl_val" not in st.session_state: st.session_state.sl_val = 10
 if "last_strategy" not in st.session_state: st.session_state.last_strategy = strategy_choice
 
-# 如果換策略，自動重設滑桿預設值
+# 換策略時，自動更新為各自策略的安全預設值
 if st.session_state.last_strategy != strategy_choice:
     st.session_state.last_strategy = strategy_choice
     if "(一)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = 20, 5, 10
+        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 20, 5, 0, 10
     elif "(二)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = 14, 50, 20
+        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 14, 50, 0, 20
     elif "(三)" in strategy_choice:
         st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 14, 30, 70, 15
     elif "(四)" in strategy_choice:
-        st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = 20, 2, 25
+        st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 20, 2, 0, 25
     elif "(五)" in strategy_choice:
         st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 12, 26, 9, 30
     elif "(六)" in strategy_choice:
         st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = 9, 3, 3, 25
 
-# 渲染滑桿
+# 💡 【核心修復點】：先確保無論如何都有基礎安全變數，消滅 NameError
+p1 = float(st.session_state.p1_val)
+p2 = float(st.session_state.p2_val)
+p3 = float(st.session_state.p3_val)
+stop_loss = float(st.session_state.sl_val)
+
+# 依據策略展示 Slider，並雙向同步更新
 if strategy_choice == "(一) 移動平均策略 (MA)":
     p1 = st.sidebar.slider("長天期均線 (Long MA)", 20, 60, key="p1_val")
     p2 = st.sidebar.slider("短天期均線 (Short MA)", 5, 19, key="p2_val")
@@ -208,6 +214,136 @@ elif strategy_choice == "(六) KDJ 震盪策略":
     p3 = st.sidebar.slider("SlowD 磨平週期", 2, 10, key="p3_val")
     stop_loss = st.sidebar.slider("移動止損點數 (元)", 5, 50, key="sl_val")
 
+# ==================== 5. 參數最佳化邏輯 ====================
+def run_backtest(df, strategy, param1, param2, param3, sl_points):
+    total_bars = len(df)
+    rec = AssignmentRecord(total_bars)
+    if total_bars < 2: return rec
+    
+    close = df['close'].values
+    open_p = df['open'].values
+    stop_loss_line = 0
+    
+    if "(一)" in strategy:
+        ma_long = compute_sma(df['close'], param1)
+        ma_short = compute_sma(df['close'], param2)
+        for n in range(1, total_bars - 1):
+            if np.isnan(ma_long[n-1]) or np.isnan(ma_short[n-1]): continue
+            if rec.OpenInterestQty == 0:
+                if ma_short[n-1] <= ma_long[n-1] and ma_short[n] > ma_long[n]:
+                    rec.Order('Buy', open_p[n+1])
+                    stop_loss_line = open_p[n+1] - sl_points
+                elif ma_short[n-1] >= ma_long[n-1] and ma_short[n] < ma_long[n]:
+                    rec.Order('Sell', open_p[n+1])
+                    stop_loss_line = open_p[n+1] + sl_points
+            elif rec.OpenInterestQty > 0:
+                if (ma_short[n-1] >= ma_long[n-1] and ma_short[n] < ma_long[n]) or close[n] < stop_loss_line:
+                    rec.Cover('Sell', open_p[n+1], n)
+                elif close[n] - sl_points > stop_loss_line: stop_loss_line = close[n] - sl_points
+            elif rec.OpenInterestQty < 0:
+                if (ma_short[n-1] <= ma_long[n-1] and ma_short[n] > ma_long[n]) or close[n] > stop_loss_line:
+                    rec.Cover('Buy', open_p[n+1], n)
+                elif close[n] + sl_points < stop_loss_line: stop_loss_line = close[n] + sl_points
+
+    elif "(二)" in strategy:
+        rsi = compute_rsi(df['close'], param1)
+        for n in range(1, total_bars - 1):
+            if np.isnan(rsi[n-1]): continue
+            if rec.OpenInterestQty == 0:
+                if rsi[n-1] <= param2 and rsi[n] > param2:
+                    rec.Order('Buy', open_p[n+1])
+                    stop_loss_line = open_p[n+1] - sl_points
+            elif rec.OpenInterestQty > 0:
+                if (rsi[n-1] >= param2 and rsi[n] < param2) or close[n] < stop_loss_line:
+                    rec.Cover('Sell', open_p[n+1], n)
+                elif close[n] - sl_points > stop_loss_line: stop_loss_line = close[n] - sl_points
+
+    elif "(三)" in strategy:
+        rsi = compute_rsi(df['close'], param1)
+        for n in range(1, total_bars - 1):
+            if np.isnan(rsi[n-1]): continue
+            if rec.OpenInterestQty == 0:
+                if rsi[n-1] <= param2 and rsi[n] > param2:
+                    rec.Order('Buy', open_p[n+1])
+                    stop_loss_line = open_p[n+1] - sl_points
+                elif rsi[n-1] >= param3 and rsi[n] < param3:
+                    rec.Order('Sell', open_p[n+1])
+                    stop_loss_line = open_p[n+1] + sl_points
+            elif rec.OpenInterestQty > 0:
+                if rsi[n] > param3 or close[n] < stop_loss_line:
+                    rec.Cover('Sell', open_p[n+1], n)
+                elif close[n] - sl_points > stop_loss_line: stop_loss_line = close[n] - sl_points
+            elif rec.OpenInterestQty < 0:
+                if rsi[n] < param2 or close[n] > stop_loss_line:
+                    rec.Cover('Buy', open_p[n+1], n)
+                elif close[n] + sl_points < stop_loss_line: stop_loss_line = close[n] + sl_points
+
+    elif "(四)" in strategy:
+        upper, middle, lower = compute_bbands(df['close'], param1, param2)
+        for n in range(1, total_bars - 1):
+            if np.isnan(upper[n-1]): continue
+            if rec.OpenInterestQty == 0:
+                if close[n-1] <= lower[n-1] and close[n] > lower[n]:
+                    rec.Order('Buy', open_p[n+1])
+                    stop_loss_line = open_p[n+1] - sl_points
+                elif close[n-1] >= upper[n-1] and close[n] < upper[n]:
+                    rec.Order('Sell', open_p[n+1])
+                    stop_loss_line = open_p[n+1] + sl_points
+            elif rec.OpenInterestQty > 0:
+                if close[n] > upper[n] or close[n] < stop_loss_line:
+                    rec.Cover('Sell', open_p[n+1], n)
+                elif close[n] - sl_points > stop_loss_line: stop_loss_line = close[n] - sl_points
+            elif rec.OpenInterestQty < 0:
+                if close[n] < lower[n] or close[n] > stop_loss_line:
+                    rec.Cover('Buy', open_p[n+1], n)
+                elif close[n] + sl_points < stop_loss_line: stop_loss_line = close[n] + sl_points
+
+    elif "(五)" in strategy:
+        macdhist = compute_macd(df['close'], param1, param2, param3)
+        for n in range(1, total_bars - 1):
+            if np.isnan(macdhist[n-1]): continue
+            hist_prev, hist_curr = macdhist[n-1], macdhist[n]
+            if rec.OpenInterestQty == 0:
+                if hist_prev <= 0 and hist_curr > 0:
+                    rec.Order('Buy', open_p[n+1])
+                    stop_loss_line = open_p[n+1] - sl_points
+                elif hist_prev >= 0 and hist_curr < 0:
+                    rec.Order('Sell', open_p[n+1])
+                    stop_loss_line = open_p[n+1] + sl_points
+            elif rec.OpenInterestQty > 0:
+                if (hist_prev >= 0 and hist_curr < 0) or close[n] < stop_loss_line:
+                    rec.Cover('Sell', open_p[n+1], n)
+                elif close[n] - sl_points > stop_loss_line: stop_loss_line = close[n] - sl_points
+            elif rec.OpenInterestQty < 0:
+                if (hist_prev <= 0 and hist_curr > 0) or close[n] > stop_loss_line:
+                    rec.Cover('Buy', open_p[n+1], n)
+                elif close[n] + sl_points < stop_loss_line: stop_loss_line = close[n] + sl_points
+
+    elif "(六)" in strategy:
+        slowk, slowd, j_val = compute_kdj(df, param1, param2, param3)
+        for n in range(1, total_bars - 1):
+            if np.isnan(slowk[n-1]): continue
+            k_prev, k_curr = slowk[n-1], slowk[n]
+            d_prev, d_curr = slowd[n-1], slowd[n]
+            if rec.OpenInterestQty == 0:
+                if k_prev <= d_prev and k_curr > d_curr and k_curr < 30:
+                    rec.Order('Buy', open_p[n+1])
+                    stop_loss_line = open_p[n+1] - sl_points
+                elif k_prev >= d_prev and k_curr < d_curr and k_curr > 70:
+                    rec.Order('Sell', open_p[n+1])
+                    stop_loss_line = open_p[n+1] + sl_points
+            elif rec.OpenInterestQty > 0:
+                if (k_prev >= d_prev and k_curr < d_curr) or j_val[n] > 100 or close[n] < stop_loss_line:
+                    rec.Cover('Sell', open_p[n+1], n)
+                elif close[n] - sl_points > stop_loss_line: stop_loss_line = close[n] - sl_points
+            elif rec.OpenInterestQty < 0:
+                if (k_prev <= d_prev and k_curr > d_curr) or j_val[n] < 0 or close[n] > stop_loss_line:
+                    rec.Cover('Buy', open_p[n+1], n)
+                elif close[n] + sl_points < stop_loss_line: stop_loss_line = close[n] + sl_points
+                    
+    rec.FillRemainingEquity()
+    return rec
+
 # ==================== 5. 參數最佳化按鈕觸發 ====================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 機器極速參數最佳化")
@@ -226,7 +362,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = best_p1, best_p2, best_sl
+            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 0, best_sl
             
         elif "(二)" in strategy_choice:
             for test_p1 in range(6, 25, 4):
@@ -236,7 +372,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = best_p1, best_p2, best_sl
+            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 0, best_sl
 
         elif "(三)" in strategy_choice:
             for test_p1 in range(10, 21, 5):
@@ -257,7 +393,7 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = best_p1, best_p2, best_sl
+            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 0, best_sl
 
         elif "(五)" in strategy_choice:
             for test_p1 in range(8, 17, 4):
@@ -267,19 +403,19 @@ if st.sidebar.button("🚀 啟動黃金參數最佳化"):
                         ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                         if ratio > best_ratio and res.TotalProfit > 0:
                             best_ratio, best_p1, best_p2, best_sl = ratio, test_p1, test_p2, test_sl
-            st.session_state.p1_val, st.session_state.p2_val, st.session_state.sl_val = best_p1, best_p2, best_sl
+            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, best_p2, 9, best_sl
 
-        elif "(六)" in strategy_choice:
+        elif "(six)" in strategy_choice or "(六)" in strategy_choice:
             for test_p1 in range(9, 19, 5):
                 for test_sl in range(15, 36, 10):
                     res = run_backtest(df_hourly, strategy_choice, test_p1, 3, 3, test_sl)
                     ratio = res.TotalProfit / res.MDD if res.MDD > 0 else 0
                     if ratio > best_ratio and res.TotalProfit > 0:
                         best_ratio, best_p1, best_sl = ratio, test_p1, test_sl
-            st.session_state.p1_val, st.session_state.sl_val = best_p1, best_sl
+            st.session_state.p1_val, st.session_state.p2_val, st.session_state.p3_val, st.session_state.sl_val = best_p1, 3, 3, best_sl
 
         st.sidebar.success(f"✨ 最佳化完成！最高風報比：{best_ratio:.2f}")
-        st.rerun() # 💡 關鍵修復：強制網頁重新整理，逼滑桿立刻跳到最優引導值！
+        st.rerun()
 
 # 最終計算當前滑桿參數的回測結果
 current_res = run_backtest(df_hourly, strategy_choice, p1, p2, p3, stop_loss)
@@ -292,7 +428,7 @@ col3.metric("📉 最大回撤 (MDD)", f"${current_res.MDD:,.0f}")
 risk_reward = current_res.TotalProfit / current_res.MDD if current_res.MDD > 0 else 0
 col4.metric("⚖️ 風險報酬比 (風報比)", f"{risk_reward:.2f}")
 
-# 繪製主圖表（💡 修復：全面改用英文標題與標籤，徹底解決雲端方塊字亂碼）
+# 繪製主圖表
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.plot(df_hourly['time'], current_res.EquityHistory, label="Cumulative PnL", color="indigo", linewidth=2)
 ax.set_title(f"Strategy Backtest - Equity Curve", fontsize=12)
